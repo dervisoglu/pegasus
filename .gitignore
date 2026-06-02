@@ -1,0 +1,30 @@
+# Python cache and temporary files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Exclude ALL old Java source code and backups
+*.java
+*.java~
+
+# Exclude Java compiled binaries and project metadata
+*.class
+*.jar
+*.war
+manifest.mf
+.metadata/
+.recommenders/
+.classpath
+.project
+.settings/
+
+# Exclude other temporary/local files in the directory
+k
+m
+n
+test.dat
+MERGED_DENEME.txt
+
+# OS generated files
+.DS_Store
+Thumbs.db
