@@ -826,6 +826,9 @@ class PegasusWindow(QMainWindow):
             self.statusBar.showMessage("No valid spectra files loaded.")
             return
             
+        # Sort echelle orders by increasing wavelength
+        self.orders.sort(key=lambda o: o.wavelength[0])
+            
         self.active_idx = 0
         self.update_ui_state()
         
@@ -915,6 +918,9 @@ class PegasusWindow(QMainWindow):
             if not parsed_orders:
                 raise ValueError("No valid orders parsed from FITS file.")
                 
+            # Sort echelle orders by increasing wavelength
+            parsed_orders.sort(key=lambda o: o.wavelength[0])
+            
             # Clean load
             self.orders = parsed_orders
             self.active_idx = 0
