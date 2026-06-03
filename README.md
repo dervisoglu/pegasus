@@ -40,11 +40,11 @@ Inspired by the spectral reduction methodologies detailed in *"Spectroscopically
 ## Prerequisites & Installation
 
 ### Core Dependencies
-PEGASUS is fully compatible with Python 3.8 to 3.12. Ensure you have the standard scientific Python libraries and PyQt5 installed. 
+PEGASUS is fully compatible with Python 3.8 to 3.12. Ensure you have the standard scientific Python libraries, PyQt5, and Astropy installed. 
 
 Install the required packages in your active environment:
 ```bash
-pip install pyqt5 matplotlib numpy scipy
+pip install pyqt5 matplotlib numpy scipy astropy
 ```
 
 ### Running PEGASUS
@@ -69,9 +69,11 @@ python pegasus.py
 ## Extensive Usage Guide
 
 ### 1. File Loading and Sorting
-PEGASUS parses plain-text ASCII files representing echelle orders. 
-- **Format Requirements**: The input files should contain two columns separated by spaces or tabs: Wavelength (in Å) and Intensity/Flux. Text headers or invalid line rows are automatically skipped.
-- **Sequential Sorting**: When you click **Load Spectra** and select multiple files, PEGASUS automatically sorts them lexicographically by filename. This guarantees that spectral orders are arranged sequentially in your memory, facilitating smooth previous/next navigation and edge merging.
+PEGASUS supports loading echelle orders in two ways:
+- **ASCII Order Files (Load Spectra)**: Parses plain-text files representing individual echelle orders. The files must contain two columns separated by spaces or tabs: Wavelength (in Å) and Intensity/Flux. Text headers are automatically skipped. The files are sorted sequentially by name.
+- **IRAF Multispec FITS File (Load IRAF FITS)**: Loads multi-order spectra directly from NOAO/IRAF-generated FITS files containing WCS `multispec` headers.
+  - *Automatic Calibration*: PEGASUS parses the `WAT2_xxx` headers to extract the starting wavelength, delta wavelength, and pixel count for each order (linear dispersion systems).
+  - *Immediate Access*: Loads all orders (e.g. 90 orders in `dellib_0001ecw.fits`) instantly, rendering the full wavelength coverage in your interactive canvases without needing intermediate files.
 
 ### 2. Continuum Anchor Placement and Fitting
 A crucial step in normalization is fitting the *blaze function* (continuum profile). PEGASUS offers two robust algorithms for this task:
@@ -93,7 +95,13 @@ In noisy spectra or orders with closely-packed absorption lines, manual cursor c
 - When enabled, any point you left-click to add, or any point you drag, will automatically snap its $Y$-coordinate to the **median intensity** of all raw spectrum pixels located inside a $\pm 0.5\text{ Å}$ wavelength window centered at the mouse cursor.
 - This allows you to rapidly place points across absorption lines and remain confident that they align with the local envelope.
 
-### 5. Blaze Continuity (Copying and Interpolation)
+### 5. Automatic Continuum Finding (Auto-Find)
+To bootstrap your continuum placement or analyze large datasets rapidly, you can toggle the **"Auto-Find Continuum (15 pts)"** checkbox under the Fitting Controls sidebar:
+- **How it Works**: PEGASUS divides the active order into 15 equal bins. Within each bin, it applies a 21-pixel median filter to the raw spectrum (eliminating noise spikes and narrow absorption lines) and locates the peak intensity of the smoothed profile.
+- **Fitting Default**: It automatically places 15 anchor points at these peaks and configures the fitting method to **Cubic Spline** by default, immediately drawing a smooth trace across the order.
+- **Navigation Automation**: If you transition to another order (via Next/Previous navigation or file loading) while the checkbox is enabled, PEGASUS automatically generates 15 auto-find points for that new order if it doesn't already contain anchors, allowing automated pre-reduction of entire echelle datasets.
+
+### 6. Blaze Continuity (Copying and Interpolation)
 When processing sequential echelle orders, the instrument blaze function changes slowly. PEGASUS provides two shortcuts to copy continuum shapes across orders:
 - **Copy from Order**: Select a source order in the dropdown. PEGASUS copies the point configuration, shifts it horizontally by the difference in starting wavelength $\Delta\lambda = \lambda_{\text{start, dest}} - \lambda_{\text{start, source}}$, and fits it to the new order.
 - **Interpolate between Orders**: In cases where a single echelle order is heavily contaminated by a broad feature (such as the $H\alpha$ absorption profile) making continuum placement impossible, you can interpolate. Choose the previous order ($c1$) and the next order ($c2$). Click **Interpolate** to average their fitted continuum shapes and project the interpolated curve onto the active order.

@@ -33,25 +33,29 @@ from PyQt5.QtGui import QFont, QIcon
 # Manages data for a single echelle order
 # ---------------------------------------------------------
 class SpectrumOrder:
-    def __init__(self, filepath):
+    def __init__(self, filepath, wavelength=None, intensity=None):
         self.filepath = filepath
         self.filename = os.path.basename(filepath)
         
-        # Load spectrum data from file
-        wavelength = []
-        intensity = []
-        with open(filepath, 'r') as f:
-            for line in f:
-                parts = line.strip().split()
-                if len(parts) >= 2:
-                    try:
-                        wavelength.append(float(parts[0]))
-                        intensity.append(float(parts[1]))
-                    except ValueError:
-                        continue
-                        
-        self.wavelength = np.array(wavelength)
-        self.intensity = np.array(intensity)
+        # Load spectrum data from file or use pre-loaded arrays
+        if wavelength is not None and intensity is not None:
+            self.wavelength = np.array(wavelength)
+            self.intensity = np.array(intensity)
+        else:
+            wavelength_list = []
+            intensity_list = []
+            with open(filepath, 'r') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        try:
+                            wavelength_list.append(float(parts[0]))
+                            intensity_list.append(float(parts[1]))
+                        except ValueError:
+                            continue
+                            
+            self.wavelength = np.array(wavelength_list)
+            self.intensity = np.array(intensity_list)
         
         # Intermediate/Result values
         self.pts_x = []         # Picked continuum wavelengths
@@ -151,6 +155,62 @@ class SpectrumOrder:
             return np.median(self.intensity[mask])
         return None
 
+    def auto_find_continuum(self):
+        total_len = len(self.wavelength)
+        if total_len == 0:
+            return
+            
+        self.pts_x = []
+        self.pts_y = []
+        
+        # Median filter size (e.g., 21 pixels to smooth out noise and absorption lines)
+        from scipy.ndimage import median_filter
+        smoothed_intensity = median_filter(self.intensity, size=21)
+        
+        # Select up to 15 unique indices
+        indices = set()
+        
+        # 1. First point in the first 10 pixels (indices 0 to min(9, total_len-1))
+        limit_first = min(10, total_len)
+        idx_first = np.argmax(smoothed_intensity[0:limit_first])
+        indices.add(idx_first)
+        
+        # 2. Last point in the last 10 pixels (indices max(0, total_len-10) to total_len-1)
+        start_last = max(0, total_len - 10)
+        idx_last = start_last + np.argmax(smoothed_intensity[start_last:total_len])
+        indices.add(idx_last)
+        
+        # 3. Middle 13 points distributed between idx_first and idx_last
+        needed = 15 - len(indices)
+        if needed > 0 and idx_last > idx_first + 1:
+            bin_edges = np.linspace(idx_first + 1, idx_last, needed + 1, dtype=int)
+            for i in range(needed):
+                s_idx = bin_edges[i]
+                e_idx = bin_edges[i+1]
+                if s_idx < e_idx:
+                    bin_max = s_idx + np.argmax(smoothed_intensity[s_idx:e_idx])
+                    indices.add(bin_max)
+                    
+        # If we still don't have enough points (e.g. due to overlap or small size),
+        # add more points from the remaining range to make it up to 15 (or total_len)
+        if len(indices) < 15 and total_len > len(indices):
+            for i in np.linspace(0, total_len - 1, 15, dtype=int):
+                indices.add(i)
+                if len(indices) >= min(15, total_len):
+                    break
+                    
+        # Convert to a sorted list of unique indices
+        sorted_indices = sorted(list(indices))
+        
+        # Map indices to wavelength and intensity values
+        for idx in sorted_indices:
+            self.pts_x.append(self.wavelength[idx])
+            self.pts_y.append(smoothed_intensity[idx])
+            
+        self.sort_points()
+        self.fit_method = "Cubic Spline"
+        self.fit()
+
     def copy_blaze(self, source_order):
         self.pts_x = []
         self.pts_y = []
@@ -167,23 +227,29 @@ class SpectrumOrder:
         if not order1.is_fitted or not order2.is_fitted:
             return
             
-        # Interpolate the fit_y of order1 and order2 to the wavelength grid of self
-        fit1 = np.interp(self.wavelength, order1.wavelength, order1.fit_y)
-        fit2 = np.interp(self.wavelength, order2.wavelength, order2.fit_y)
+        # Interpolate by normalized pixel coordinate (0 to 1) instead of absolute wavelength,
+        # because the blaze profile shape is physically tied to the detector pixel coordinate
+        # and adjacent orders are shifted in wavelength.
+        x1 = np.linspace(0.0, 1.0, len(order1.wavelength))
+        x2 = np.linspace(0.0, 1.0, len(order2.wavelength))
+        x_self = np.linspace(0.0, 1.0, len(self.wavelength))
+        
+        fit1 = np.interp(x_self, x1, order1.fit_y)
+        fit2 = np.interp(x_self, x2, order2.fit_y)
         
         self.fit_y = (fit1 + fit2) / 2.0
         
         # Sample points from the interpolated curve to show picked points
         self.pts_x = []
         self.pts_y = []
-        n_pts = 10
+        n_pts = 15
         indices = np.linspace(0, len(self.wavelength) - 1, n_pts, dtype=int)
         for idx in indices:
             self.pts_x.append(self.wavelength[idx])
             self.pts_y.append(self.fit_y[idx])
             
-        self.degree = 9
-        self.fit_method = "Polynomial"
+        self.degree = 3
+        self.fit_method = "Cubic Spline"
         self.fit()
 
 # ---------------------------------------------------------
@@ -526,6 +592,7 @@ class PegasusWindow(QMainWindow):
         self.btn_save_blazes = QPushButton("Save Blazes")
         self.btn_merge = QPushButton("Merge Spectra")
         self.btn_load_ref = QPushButton("Load Ref Spec")
+        self.btn_load_fits = QPushButton("Load IRAF FITS")
         
         self.btn_load.clicked.connect(self.load_spectra)
         self.btn_save.clicked.connect(self.save_norm_spectra)
@@ -533,6 +600,7 @@ class PegasusWindow(QMainWindow):
         self.btn_save_blazes.clicked.connect(self.save_blazes)
         self.btn_merge.clicked.connect(self.open_spectra_merger)
         self.btn_load_ref.clicked.connect(self.load_ref_spectrum)
+        self.btn_load_fits.clicked.connect(self.load_iraf_fits)
         
         files_layout.addWidget(self.btn_load, 0, 0)
         files_layout.addWidget(self.btn_save, 0, 1)
@@ -540,6 +608,7 @@ class PegasusWindow(QMainWindow):
         files_layout.addWidget(self.btn_save_blazes, 1, 1)
         files_layout.addWidget(self.btn_merge, 2, 0)
         files_layout.addWidget(self.btn_load_ref, 2, 1)
+        files_layout.addWidget(self.btn_load_fits, 3, 0, 1, 2)
         sidebar_layout.addWidget(files_group)
         
         # Group 2: Order Navigation
@@ -582,9 +651,14 @@ class PegasusWindow(QMainWindow):
         self.chk_median_snap.setChecked(False)
         fit_layout.addWidget(self.chk_median_snap, 2, 0, 1, 2)
         
+        self.chk_auto_continuum = QCheckBox("Auto-Find Continuum (15 pts)")
+        self.chk_auto_continuum.setChecked(False)
+        self.chk_auto_continuum.stateChanged.connect(self.auto_continuum_toggled)
+        fit_layout.addWidget(self.chk_auto_continuum, 3, 0, 1, 2)
+        
         self.btn_fit = QPushButton("Re-Fit")
         self.btn_fit.clicked.connect(self.re_fit_current)
-        fit_layout.addWidget(self.btn_fit, 3, 0, 1, 2)
+        fit_layout.addWidget(self.btn_fit, 4, 0, 1, 2)
         sidebar_layout.addWidget(fit_group)
         
         # Group 4: Point Manipulation (Mouse wheel settings)
@@ -747,10 +821,100 @@ class PegasusWindow(QMainWindow):
         # Setup Zoom and Overlap sliders
         self.setup_sliders()
         
+        if self.chk_auto_continuum.isChecked():
+            for order in self.orders:
+                order.auto_find_continuum()
+            self.update_ui_state()
+            
         self.canvas_fitting.set_order(self.orders[self.active_idx])
         self.update_overlap_plot(reset_axes=True)
         
         self.statusBar.showMessage(f"Successfully loaded {len(self.orders)} spectral orders.")
+
+    def load_iraf_fits(self):
+        filepath, _ = QFileDialog.getOpenFileName(
+            self, "Select IRAF Echelle FITS File", "", "FITS Files (*.fits *.fit)"
+        )
+        if not filepath:
+            return
+            
+        try:
+            import astropy.io.fits as pyfits
+            import re
+            
+            with pyfits.open(filepath) as hdul:
+                hdul.verify('silentfix')
+                header = hdul[0].header
+                data = hdul[0].data
+                
+                if data is None or len(data.shape) != 2:
+                    raise ValueError("FITS primary data must be a 2D array (orders x pixels).")
+                    
+                # Re-construct WAT2 string
+                wat_str = ''.join([header[k].ljust(68) for k in sorted(header.keys()) if k.startswith('WAT2_')])
+                if not wat_str:
+                    raise ValueError("No WAT2_ WCS headers found. This does not appear to be an IRAF multispec FITS file.")
+                    
+                specs = re.findall(r'spec(\d+)\s*=\s*\"([^\"]+)\"', wat_str)
+                if not specs:
+                    raise ValueError("Failed to parse spec lines from WAT2 headers.")
+                    
+                # Sort specs by spec_id
+                specs.sort(key=lambda x: int(x[0]))
+                
+                parsed_orders = []
+                for spec_id_str, spec_val in specs:
+                    parts = spec_val.split()
+                    if len(parts) < 6:
+                        continue
+                    spec_id = int(parts[0])
+                    order_id = int(parts[1])
+                    disp_type = int(parts[2])
+                    w_start = float(parts[3])
+                    w_delta = float(parts[4])
+                    n_pixels = int(parts[5])
+                    
+                    if disp_type != 0:
+                        raise ValueError(f"Non-linear dispersion (type {disp_type}) in order {order_id} is not supported.")
+                        
+                    idx = spec_id - 1
+                    if idx < 0 or idx >= data.shape[0]:
+                        continue
+                        
+                    intensity = data[idx, :n_pixels]
+                    wavelength = w_start + np.arange(len(intensity)) * w_delta
+                    
+                    basename = os.path.basename(filepath)
+                    order_filename = f"{basename}_order_{order_id:03d}.dat"
+                    
+                    # Create the SpectrumOrder object using pre-loaded data
+                    order = SpectrumOrder(filepath, wavelength=wavelength, intensity=intensity)
+                    order.filename = order_filename
+                    parsed_orders.append(order)
+                    
+            if not parsed_orders:
+                raise ValueError("No valid orders parsed from FITS file.")
+                
+            # Clean load
+            self.orders = parsed_orders
+            self.active_idx = 0
+            self.update_ui_state()
+            
+            # Setup Zoom and Overlap sliders
+            self.setup_sliders()
+            
+            if self.chk_auto_continuum.isChecked():
+                for order in self.orders:
+                    order.auto_find_continuum()
+                self.update_ui_state()
+                
+            self.canvas_fitting.set_order(self.orders[self.active_idx])
+            self.update_overlap_plot(reset_axes=True)
+            
+            self.statusBar.showMessage(f"Successfully loaded {len(self.orders)} spectral orders from FITS.")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "FITS Load Error", f"Failed to load FITS file: {str(e)}")
 
     def setup_sliders(self):
         if not self.orders or self.active_idx < 0:
@@ -852,6 +1016,9 @@ class PegasusWindow(QMainWindow):
             self.active_idx -= 1
             self.update_ui_state()
             self.setup_sliders()
+            if self.chk_auto_continuum.isChecked() and not self.orders[self.active_idx].pts_x:
+                self.orders[self.active_idx].auto_find_continuum()
+                self.update_ui_state()
             self.canvas_fitting.set_order(self.orders[self.active_idx])
             self.update_overlap_plot(reset_axes=True)
 
@@ -860,6 +1027,9 @@ class PegasusWindow(QMainWindow):
             self.active_idx += 1
             self.update_ui_state()
             self.setup_sliders()
+            if self.chk_auto_continuum.isChecked() and not self.orders[self.active_idx].pts_x:
+                self.orders[self.active_idx].auto_find_continuum()
+                self.update_ui_state()
             self.canvas_fitting.set_order(self.orders[self.active_idx])
             self.update_overlap_plot(reset_axes=True)
 
@@ -890,6 +1060,16 @@ class PegasusWindow(QMainWindow):
         self.orders[self.active_idx].fit()
         self.canvas_fitting.draw_plot(reset_zoom=False)
         self.update_overlap_plot()
+
+    def auto_continuum_toggled(self, state):
+        if state == Qt.Checked:
+            if self.orders:
+                for order in self.orders:
+                    if not order.pts_x:
+                        order.auto_find_continuum()
+                self.update_ui_state()
+                self.canvas_fitting.draw_plot(reset_zoom=False)
+                self.update_overlap_plot()
 
     def on_fit_changed(self):
         # Called automatically when canvas points are added/dragged/removed/scrolled
