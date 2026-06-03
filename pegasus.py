@@ -798,12 +798,23 @@ class PegasusWindow(QMainWindow):
         if not files:
             return
             
+        # If the user selected a single FITS file, route it to the FITS loader automatically
+        if len(files) == 1 and files[0].lower().endswith(('.fits', '.fit')):
+            self.load_iraf_fits_file(files[0])
+            return
+            
         # Clean loading
         self.orders = []
         # Sort files by name so echelle orders are in sequence
         files.sort()
         
         for filepath in files:
+            if filepath.lower().endswith(('.fits', '.fit')):
+                QMessageBox.warning(
+                    self, "Invalid File Type", 
+                    f"FITS files ({os.path.basename(filepath)}) cannot be loaded as ASCII text. Please use 'Load IRAF FITS' instead."
+                )
+                continue
             try:
                 order = SpectrumOrder(filepath)
                 if len(order.wavelength) > 0:
@@ -837,7 +848,9 @@ class PegasusWindow(QMainWindow):
         )
         if not filepath:
             return
-            
+        self.load_iraf_fits_file(filepath)
+
+    def load_iraf_fits_file(self, filepath):
         try:
             import astropy.io.fits as pyfits
             import re
@@ -847,8 +860,8 @@ class PegasusWindow(QMainWindow):
                 header = hdul[0].header
                 data = hdul[0].data
                 
-                if data is None or len(data.shape) != 2:
-                    raise ValueError("FITS primary data must be a 2D array (orders x pixels).")
+                if data is None or len(data.shape) not in [2, 3]:
+                    raise ValueError("FITS primary data must be a 2D or 3D array (orders x pixels or bands x orders x pixels).")
                     
                 # Re-construct WAT2 string
                 wat_str = ''.join([header[k].ljust(68) for k in sorted(header.keys()) if k.startswith('WAT2_')])
@@ -878,10 +891,17 @@ class PegasusWindow(QMainWindow):
                         raise ValueError(f"Non-linear dispersion (type {disp_type}) in order {order_id} is not supported.")
                         
                     idx = spec_id - 1
-                    if idx < 0 or idx >= data.shape[0]:
-                        continue
+                    
+                    # Support both 2D and 3D data arrays
+                    if len(data.shape) == 3:
+                        if idx < 0 or idx >= data.shape[1]:
+                            continue
+                        intensity = data[0, idx, :n_pixels]
+                    else:
+                        if idx < 0 or idx >= data.shape[0]:
+                            continue
+                        intensity = data[idx, :n_pixels]
                         
-                    intensity = data[idx, :n_pixels]
                     wavelength = w_start + np.arange(len(intensity)) * w_delta
                     
                     basename = os.path.basename(filepath)
