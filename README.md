@@ -1,8 +1,7 @@
-# PEGASUS: Parametric Echelle Graphical Assistant for Spectroscopic Unification and Spline-fitting
-
+# PEGASUS
 **PEGASUS** is a modern, high-performance, interactive visual tool written in Python and PyQt5 designed for reducing, normalizing, spline-fitting, and merging stellar echelle spectra. 
 
-Inspired by the spectral reduction methodologies detailed in *"Spectroscopically resolving the Algol triple system"* (Kolbas et al.), PEGASUS consolidates legacy multi-window command workflows into a unified, highly interactive graphical dashboard.
+Inspired by the spectral reduction methodologies detailed in *"Spectroscopically resolving the Algol triple system"* (Kolbas et al.2015), PEGASUS consolidates legacy multi-window command workflows into a unified, highly interactive graphical dashboard.
 
 ---
 
@@ -73,7 +72,7 @@ PEGASUS supports loading echelle orders in two ways:
 - **ASCII Order Files (Load Spectra)**: Parses plain-text files representing individual echelle orders. The files must contain two columns separated by spaces or tabs: Wavelength (in Å) and Intensity/Flux. Text headers are automatically skipped. The files are sorted sequentially by name.
 - **IRAF Multispec FITS File (Load IRAF FITS)**: Loads multi-order spectra directly from NOAO/IRAF-generated FITS files containing WCS `multispec` headers.
   - *Automatic Calibration*: PEGASUS parses the `WAT2_xxx` headers to extract the starting wavelength, delta wavelength, and pixel count for each order (linear dispersion systems).
-  - *Immediate Access*: Loads all orders (e.g. 90 orders in `dellib_0001ecw.fits`) instantly, rendering the full wavelength coverage in your interactive canvases without needing intermediate files.
+  - *Immediate Access*: Loads all orders  instantly, rendering the full wavelength coverage in your interactive canvases without needing intermediate files.
 
 ### 2. Continuum Anchor Placement and Fitting
 A crucial step in normalization is fitting the *blaze function* (continuum profile). PEGASUS offers two robust algorithms for this task:
