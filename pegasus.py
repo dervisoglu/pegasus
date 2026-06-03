@@ -860,63 +860,160 @@ class PegasusWindow(QMainWindow):
             
             with pyfits.open(filepath) as hdul:
                 hdul.verify('silentfix')
-                header = hdul[0].header
-                data = hdul[0].data
                 
-                if data is None or len(data.shape) not in [2, 3]:
-                    raise ValueError("FITS primary data must be a 2D or 3D array (orders x pixels or bands x orders x pixels).")
-                    
-                # Re-construct WAT2 string
-                wat_str = ''.join([header[k].ljust(68) for k in sorted(header.keys()) if k.startswith('WAT2_')])
-                if not wat_str:
-                    raise ValueError("No WAT2_ WCS headers found. This does not appear to be an IRAF multispec FITS file.")
-                    
-                specs = re.findall(r'spec(\d+)\s*=\s*\"([^\"]+)\"', wat_str)
-                if not specs:
-                    raise ValueError("Failed to parse spec lines from WAT2 headers.")
-                    
-                # Sort specs by spec_id
-                specs.sort(key=lambda x: int(x[0]))
-                
+                # Check for Binary Table HDUs first
                 parsed_orders = []
-                for spec_id_str, spec_val in specs:
-                    parts = spec_val.split()
-                    if len(parts) < 6:
-                        continue
-                    spec_id = int(parts[0])
-                    order_id = int(parts[1])
-                    disp_type = int(parts[2])
-                    w_start = float(parts[3])
-                    w_delta = float(parts[4])
-                    n_pixels = int(parts[5])
+                for hdu in hdul:
+                    if isinstance(hdu, pyfits.BinTableHDU):
+                        # Search for wavelength and flux columns
+                        wave_col = None
+                        flux_col = None
+                        for c in hdu.columns:
+                            name = c.name.lower()
+                            if name in ['wave', 'wavelength', 'wavel', 'lambda', 'awav']:
+                                wave_col = c.name
+                            if name in ['flux', 'intensity', 'spec', 'signal', 'data', 'y']:
+                                flux_col = c.name
+                        if wave_col and flux_col:
+                            wavelength = np.array(hdu.data[wave_col])
+                            intensity = np.array(hdu.data[flux_col])
+                            
+                            # Filter out NaNs
+                            nan_mask = np.isnan(wavelength) | np.isnan(intensity)
+                            wavelength = wavelength[~nan_mask]
+                            intensity = intensity[~nan_mask]
+                            
+                            if len(wavelength) > 0:
+                                order_filename = f"{os.path.basename(filepath)}_table.dat"
+                                order = SpectrumOrder(filepath, wavelength=wavelength, intensity=intensity)
+                                order.filename = order_filename
+                                parsed_orders.append(order)
+                                
+                if not parsed_orders:
+                    # Primary HDU
+                    primary = hdul[0]
+                    header = primary.header
+                    data = primary.data
                     
-                    if disp_type != 0:
-                        raise ValueError(f"Non-linear dispersion (type {disp_type}) in order {order_id} is not supported.")
+                    if data is None:
+                        raise ValueError("Primary HDU contains no data array.")
                         
-                    idx = spec_id - 1
-                    
-                    # Support both 2D and 3D data arrays
-                    if len(data.shape) == 3:
-                        if idx < 0 or idx >= data.shape[1]:
-                            continue
-                        intensity = data[0, idx, :n_pixels]
-                    else:
-                        if idx < 0 or idx >= data.shape[0]:
-                            continue
-                        intensity = data[idx, :n_pixels]
-                        
-                    wavelength = w_start + np.arange(len(intensity)) * w_delta
-                    
-                    basename = os.path.basename(filepath)
-                    order_filename = f"{basename}_order_{order_id:03d}.dat"
-                    
-                    # Create the SpectrumOrder object using pre-loaded data
-                    order = SpectrumOrder(filepath, wavelength=wavelength, intensity=intensity)
-                    order.filename = order_filename
-                    parsed_orders.append(order)
-                    
+                    # --- Format 1: Multi-order WAT2 echelle FITS (multispec) ---
+                    wat_str = ''.join([header[k].ljust(68) for k in sorted(header.keys()) if k.startswith('WAT2_')])
+                    if wat_str:
+                        specs = re.findall(r'spec(\d+)\s*=\s*\"([^\"]+)\"', wat_str)
+                        if specs:
+                            specs.sort(key=lambda x: int(x[0]))
+                            for spec_id_str, spec_val in specs:
+                                parts = spec_val.split()
+                                if len(parts) < 6:
+                                    continue
+                                spec_id = int(parts[0])
+                                order_id = int(parts[1])
+                                disp_type = int(parts[2])
+                                w_start = float(parts[3])
+                                w_delta = float(parts[4])
+                                n_pixels = int(parts[5])
+                                
+                                if disp_type != 0:
+                                    continue
+                                    
+                                idx = spec_id - 1
+                                
+                                # Support both 2D and 3D data arrays
+                                if len(data.shape) == 3:
+                                    if idx < 0 or idx >= data.shape[1]:
+                                        continue
+                                    intensity = np.array(data[0, idx, :n_pixels])
+                                elif len(data.shape) == 2:
+                                    if idx < 0 or idx >= data.shape[0]:
+                                        continue
+                                    intensity = np.array(data[idx, :n_pixels])
+                                else:
+                                    continue
+                                    
+                                wavelength = w_start + np.arange(len(intensity)) * w_delta
+                                
+                                # Filter out NaNs
+                                nan_mask = np.isnan(wavelength) | np.isnan(intensity)
+                                wavelength = wavelength[~nan_mask]
+                                intensity = intensity[~nan_mask]
+                                
+                                if len(wavelength) > 0:
+                                    order_filename = f"{os.path.basename(filepath)}_order_{order_id:03d}.dat"
+                                    order = SpectrumOrder(filepath, wavelength=wavelength, intensity=intensity)
+                                    order.filename = order_filename
+                                    parsed_orders.append(order)
+                                    
+                    # --- Format 2: Multi-order log-rebin echelle (coordinateXXX / binSizeXXX) ---
+                    if not parsed_orders:
+                        coordinate_keys = [k for k in header.keys() if k.startswith('coordinate')]
+                        if coordinate_keys:
+                            n_orders = len(coordinate_keys)
+                            for idx in range(n_orders):
+                                key_coord = f"coordinate{idx:03d}"
+                                key_binsize = f"binSize{idx:03d}"
+                                if key_coord not in header:
+                                    key_coord = f"coordinate{idx+1:03d}"
+                                    key_binsize = f"binSize{idx+1:03d}"
+                                    
+                                if key_coord not in header or key_binsize not in header:
+                                    continue
+                                    
+                                coord = header[key_coord]
+                                binsize = header[key_binsize]
+                                
+                                # Extract intensity from 2D data shape
+                                if len(data.shape) == 2:
+                                    if data.shape[1] == n_orders:
+                                        intensity = np.array(data[:, idx])
+                                    elif data.shape[0] == n_orders:
+                                        intensity = np.array(data[idx, :])
+                                    else:
+                                        intensity = np.array(data[:, idx] if idx < data.shape[1] else data[idx, :])
+                                elif len(data.shape) == 1:
+                                    intensity = np.array(data)
+                                else:
+                                    continue
+                                    
+                                n_pixels = len(intensity)
+                                wavelength = np.exp(coord + np.arange(n_pixels) * binsize)
+                                
+                                # Filter out NaNs
+                                nan_mask = np.isnan(wavelength) | np.isnan(intensity)
+                                wavelength = wavelength[~nan_mask]
+                                intensity = intensity[~nan_mask]
+                                
+                                if len(wavelength) > 0:
+                                    order_filename = f"{os.path.basename(filepath)}_order_{idx+1:03d}.dat"
+                                    order = SpectrumOrder(filepath, wavelength=wavelength, intensity=intensity)
+                                    order.filename = order_filename
+                                    parsed_orders.append(order)
+                                    
+                    # --- Format 3: 1D spectrum with CRVAL1/CDELT1/CRPIX1 ---
+                    if not parsed_orders:
+                        if 'CRVAL1' in header and 'CDELT1' in header:
+                            crval = header['CRVAL1']
+                            cdelt = header['CDELT1']
+                            crpix = header.get('CRPIX1', 1.0)
+                            
+                            intensity = np.array(data.flatten())
+                            n_pixels = len(intensity)
+                            wavelength = crval + (np.arange(n_pixels) + 1 - crpix) * cdelt
+                            
+                            # Filter out NaNs
+                            nan_mask = np.isnan(wavelength) | np.isnan(intensity)
+                            wavelength = wavelength[~nan_mask]
+                            intensity = intensity[~nan_mask]
+                            
+                            if len(wavelength) > 0:
+                                order_filename = f"{os.path.basename(filepath)}_1d.dat"
+                                order = SpectrumOrder(filepath, wavelength=wavelength, intensity=intensity)
+                                order.filename = order_filename
+                                parsed_orders.append(order)
+                                
             if not parsed_orders:
-                raise ValueError("No valid orders parsed from FITS file.")
+                raise ValueError("Unsupported or unrecognized FITS spectrum format.")
                 
             # Sort echelle orders by increasing wavelength
             parsed_orders.sort(key=lambda o: o.wavelength[0])
