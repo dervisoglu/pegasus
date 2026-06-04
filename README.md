@@ -68,11 +68,19 @@ python pegasus.py
 ## Extensive Usage Guide
 
 ### 1. File Loading and Sorting
-PEGASUS supports loading echelle orders in two ways:
-- **ASCII Order Files (Load Spectra)**: Parses plain-text files representing individual echelle orders. The files must contain two columns separated by spaces or tabs: Wavelength (in Å) and Intensity/Flux. Text headers are automatically skipped. The files are sorted sequentially by name.
-- **IRAF Multispec FITS File (Load IRAF FITS)**: Loads multi-order spectra directly from NOAO/IRAF-generated FITS files containing WCS `multispec` headers.
-  - *Automatic Calibration*: PEGASUS parses the `WAT2_xxx` headers to extract the starting wavelength, delta wavelength, and pixel count for each order (linear dispersion systems).
-  - *Immediate Access*: Loads all orders  instantly, rendering the full wavelength coverage in your interactive canvases without needing intermediate files.
+PEGASUS supports loading echelle orders in three main ways:
+- **ASCII Order Files (Load Spectra)**: Parses plain-text files representing individual echelle orders. The files must contain two columns separated by spaces or tabs: Wavelength (in Å) and Intensity/Flux. Text headers are automatically skipped. Loaded orders are automatically sorted sequentially by increasing starting wavelength.
+- **PolarBase `.s` Files (Load Spectra)**: Automatically parses multi-order ASCII spectra exported from the PolarBase archive (typically ESPaDOnS and Narval data).
+  - *Automatic Metadata Skip*: Skips the first 2 metadata lines.
+  - *Order Splitting*: Scans the single-stream file to detect order boundaries using negative wavelength jumps (`wavelength[i] < wavelength[i-1]`) and positive wavelength gaps (`wavelength[i] - wavelength[i-1] > 1.0 Å`), which correctly separates non-overlapping red-end segments.
+  - *Unit Conversion*: Automatically converts wavelength values from nanometers (nm) to Angstroms (Å) by multiplying by 10.0.
+- **Astronomical FITS Spectra (Load IRAF FITS)**: Automatically detects and parses four distinct spectrographic WCS formats:
+  - *IRAF WAT2 multispec (2D/3D)*: Extracts data grids and WCS specifications from `WAT2_xxx` headers. Supports 2D grids (orders x pixels) and 3D data cubes (bands x orders x pixels, extracting Band 0).
+  - *Log-Rebin coordinate/binSize*: Computes natural log-spaced grids ($\lambda_x = e^{\text{coordinate} + x \times \text{binSize}}$) using `coordinateXXX`/`binSizeXXX` headers.
+  - *1D Linear Spectrum*: Generates coordinates using standard `CRVAL1`, `CDELT1`, and `CRPIX1` headers.
+  - *FITS Binary Tables*: Automatically detects and extracts columns matching wavelength and flux/intensity.
+  - *NaN Filtering*: Automatically strips out `NaN` values to ensure Cubic Spline stability.
+  - *Automatic Redirection*: Selecting a `.fits` file through the ASCII "Load Spectra" dialog automatically routes it to the FITS parser.
 
 ### 2. Continuum Anchor Placement and Fitting
 A crucial step in normalization is fitting the *blaze function* (continuum profile). PEGASUS offers two robust algorithms for this task:
@@ -97,20 +105,22 @@ In noisy spectra or orders with closely-packed absorption lines, manual cursor c
 ### 5. Automatic Continuum Finding (Auto-Find)
 To bootstrap your continuum placement or analyze large datasets rapidly, you can toggle the **"Auto-Find Continuum (15 pts)"** checkbox under the Fitting Controls sidebar:
 - **How it Works**: PEGASUS divides the active order into 15 equal bins. Within each bin, it applies a 21-pixel median filter to the raw spectrum (eliminating noise spikes and narrow absorption lines) and locates the peak intensity of the smoothed profile.
+- **Strict Boundary Anchors**: To prevent Cubic Spline boundary overshoots, PEGASUS guarantees that at least one point is placed in the first 10 pixels (indices 0 to 9) and at least one point is in the last 10 pixels (indices `total_len - 10` to `total_len - 1`) of the order.
 - **Fitting Default**: It automatically places 15 anchor points at these peaks and configures the fitting method to **Cubic Spline** by default, immediately drawing a smooth trace across the order.
 - **Navigation Automation**: If you transition to another order (via Next/Previous navigation or file loading) while the checkbox is enabled, PEGASUS automatically generates 15 auto-find points for that new order if it doesn't already contain anchors, allowing automated pre-reduction of entire echelle datasets.
 
 ### 6. Blaze Continuity (Copying and Interpolation)
 When processing sequential echelle orders, the instrument blaze function changes slowly. PEGASUS provides two shortcuts to copy continuum shapes across orders:
 - **Copy from Order**: Select a source order in the dropdown. PEGASUS copies the point configuration, shifts it horizontally by the difference in starting wavelength $\Delta\lambda = \lambda_{\text{start, dest}} - \lambda_{\text{start, source}}$, and fits it to the new order.
-- **Interpolate between Orders**: In cases where a single echelle order is heavily contaminated by a broad feature (such as the $H\alpha$ absorption profile) making continuum placement impossible, you can interpolate. Choose the previous order ($c1$) and the next order ($c2$). Click **Interpolate** to average their fitted continuum shapes and project the interpolated curve onto the active order.
+- **Interpolate between Orders**: In cases where a single echelle order is heavily contaminated by a broad feature (such as the $H\alpha$ absorption profile) making continuum placement impossible, you can interpolate. Choose the previous order ($c1$) and the next order ($c2$). Click **Interpolate** to average their fitted continuum shapes (projected on normalized pixel coordinates `0.0` to `1.0` to preserve the blaze peak position) and project the interpolated curve onto the active order.
 
-### 6. Reference Spectrum and Doppler Shift Adjustments
-To verify the quality of your normalization:
-- Click **Load Ref Spec** to load a synthetic stellar model or high-SNR atlas (Vega, Arcturus, etc.) in the bottom overlap panel. It will be rendered as a dark gray reference curve.
-- Enter a velocity value in the **Doppler Shift (Å)** text field and click **Shift** to translate the reference spectrum horizontally in real-time. This allows you to align absorption lines and ensure your continuum normalization is perfect.
+### 7. Automatic Y-Axis Scaling on Lower Plot
+To prevent echelle orders from appearing vertically squished and to make fine absorption/emission lines easy to inspect, the lower normalized spectrum screen (`draw_overlap`) automatically adjusts its Y-axis:
+- **Tight Autoscale**: The Y-limits automatically scale to fit the active order's normalized data range tightly, applying a 5% margin (for example, displaying `[0.86, 1.02]` for a high-signal order).
+- **Default [0.0, 1.1] Limits**: Falls back to `[0.0, 1.1]` if the active order has not yet been fitted.
+- **Reference Spectrum & Doppler Shift**: Click **Load Ref Spec** to overlay a synthetic model in the bottom panel. Enter a shift in the **Doppler Shift (Å)** text box and click **Shift** to slide it horizontally to verify your normalization.
 
-### 7. Saving and Loading Blaze Configurations
+### 8. Saving and Loading Blaze Configurations
 Your work is fully restorable.
 - **Save Blazes**: Exports all your picked continuum anchor coordinates into a plain-text database. The format matches legacy Java logs perfectly:
   1. Total number of orders.
@@ -118,11 +128,11 @@ Your work is fully restorable.
   3. All space-separated $(X, Y)$ anchor coordinates in sequence.
 - **Load Blazes**: Re-imports a saved blaze database, immediately re-populating all anchor points and re-generating their spline/polynomial fits.
 
-### 8. Visual Trimming and Scientific Merging
+### 9. Visual Trimming and Scientific Merging
 Echelle spectra suffer from low signal-to-noise ratios (SNR) and severe instrument roll-off at the overlapping edges of each order. Directly merging raw orders creates jagged, overlapping spikes. PEGASUS solves this with an interactive visual trimmer:
 - Click **Merge Spectra** to launch the resizable trimmer workspace dialog.
-- **Interactive Boundary Dragging**: Each order is displayed individually. Hovering over the royal blue dashed vertical lines changes your mouse cursor to a double-sided horizontal arrow (`Qt.SizeHorCursor`). Left-click and drag these lines to narrow the active wavelength range of the order.
-- **Dynamic Masking**: Discarded edge data is visually shaded with a translucent gray overlay, showing exactly which wavelength ranges will be ignored.
+- **Draggable Bounds & Dynamic Masking**: Hovering over the blue dashed vertical boundary lines changes the mouse cursor to a double-sided arrow (`Qt.SizeHorCursor`). Drag them to narrow the active wavelength range. Discarded edge data is visually shaded with a translucent gray overlay.
+- **Plot Enhancements**: Plotted non-active orders appear in faint black (`color='#000000', alpha=0.4`) instead of light gray, staying clearly visible in the background. The dialog default viewport limits are set to `[0.0, 1.1]`.
 - **Scientific Re-Gridding and Combining**:
   1. Once all orders have been trimmed, click **Merge & Save 1D Spectrum**.
   2. PEGASUS automatically calculates the optimal unified pixel bin spacing $\Delta\lambda$ based on the average resolution of your spectral segments.
@@ -132,6 +142,7 @@ Echelle spectra suffer from low signal-to-noise ratios (SNR) and severe instrume
   6. The finalized merged 1D spectrum is exported as a clean two-column ASCII file.
 
 ---
+
 
 ## Keyboard and Mouse Reference
 
