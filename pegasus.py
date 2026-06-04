@@ -570,8 +570,7 @@ class NormalizedOverlapCanvas(FigureCanvas):
                 
             self.ax.set_ylim(ymin_scaled, ymax_scaled)
             
-        # Limit control
-        self.ax.legend(facecolor='#ffffff', edgecolor='#cccccc', labelcolor='#000000', loc='lower left')
+        # Redraw canvas
         self.draw()
 
 # ---------------------------------------------------------
@@ -1739,8 +1738,8 @@ class SpectraMergerWindow(QDialog):
                     # Highlight selected order in crimson/royal red
                     self.ax.plot(o.wavelength, o.norm_y, color='#e74c3c', linewidth=2.0, zorder=5, label=f"Selected: Order {i+1}")
                 else:
-                    # Faint grey for non-active orders
-                    self.ax.plot(o.wavelength, o.norm_y, color='#bdc3c7', linewidth=1.0, zorder=2, alpha=0.6)
+                    # Faint black for non-active orders
+                    self.ax.plot(o.wavelength, o.norm_y, color='#000000', linewidth=1.0, zorder=2, alpha=0.4)
                     
         # Render left and right draggable dashed boundary lines (nice royal blue)
         self.line_min = self.ax.axvline(active_order.trim_min, color='#3498db', linestyle='--', linewidth=2.0, zorder=6, label='Trim Bounds')
