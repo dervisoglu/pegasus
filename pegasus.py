@@ -551,37 +551,24 @@ class NormalizedOverlapCanvas(FigureCanvas):
             else:
                 self.ax.set_xlim(w_min, w_max)
                 
-            # Automatically scale y-axis based on plotted data, but always at least [0.0, 1.2]
-            all_y = []
-            if active_order.is_fitted and active_order.norm_y is not None:
-                all_y.append(active_order.norm_y)
-            if ref_wavelength is not None and ref_intensity is not None:
-                all_y.append(ref_intensity)
-            if draw_adjacent and active_idx > 0:
-                prev_order = orders[active_idx - 1]
-                if prev_order.is_fitted and prev_order.norm_y is not None:
-                    all_y.append(prev_order.norm_y)
-            if draw_adjacent and active_idx < len(orders) - 1:
-                next_order = orders[active_idx + 1]
-                if next_order.is_fitted and next_order.norm_y is not None:
-                    all_y.append(next_order.norm_y)
-
-            if all_y:
-                flat_y = np.concatenate([y for y in all_y if len(y) > 0])
-                valid_y = flat_y[np.isfinite(flat_y)]
+            # Automatically scale y-axis based on active order's normalized data (with 5% padding)
+            # Fall back to [0.0, 1.1] if not yet fitted
+            if active_order.is_fitted and active_order.norm_y is not None and len(active_order.norm_y) > 0:
+                valid_y = active_order.norm_y[np.isfinite(active_order.norm_y)]
                 if len(valid_y) > 0:
-                    data_ymin = np.nanmin(valid_y)
-                    data_ymax = np.nanmax(valid_y)
-                    ymin = min(0.0, float(data_ymin))
-                    ymax = max(1.2, float(data_ymax))
+                    ymin = np.nanmin(valid_y)
+                    ymax = np.nanmax(valid_y)
+                    dy = (ymax - ymin) * 0.05 if ymax != ymin else 0.1
+                    ymin_scaled = float(ymin - dy)
+                    ymax_scaled = float(ymax + dy)
                 else:
-                    ymin = 0.0
-                    ymax = 1.2
+                    ymin_scaled = 0.0
+                    ymax_scaled = 1.1
             else:
-                ymin = 0.0
-                ymax = 1.2
+                ymin_scaled = 0.0
+                ymax_scaled = 1.1
                 
-            self.ax.set_ylim(ymin, ymax)
+            self.ax.set_ylim(ymin_scaled, ymax_scaled)
             
         # Limit control
         self.ax.legend(facecolor='#ffffff', edgecolor='#cccccc', labelcolor='#000000', loc='lower left')
@@ -1777,7 +1764,7 @@ class SpectraMergerWindow(QDialog):
             # Re-center viewport tightly on the active order
             dx = (active_order.wavelength[-1] - active_order.wavelength[0]) * 0.05
             self.ax.set_xlim(active_order.wavelength[0] - dx, active_order.wavelength[-1] + dx)
-            self.ax.set_ylim(0.0, 1.2)
+            self.ax.set_ylim(0.0, 1.1)
             
         self.canvas.draw()
 
