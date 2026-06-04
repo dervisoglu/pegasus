@@ -481,9 +481,15 @@ class NormalizedOverlapCanvas(FigureCanvas):
         for spine in self.ax.spines.values():
             spine.set_color('#cccccc')
 
-    def draw_overlap(self, orders, active_idx, draw_adjacent=True, ref_wavelength=None, ref_intensity=None, from_y=0.0, reset_axes=False):
+    def draw_overlap(self, orders, active_idx, draw_adjacent=True, ref_wavelength=None, ref_intensity=None, from_y=0.0, reset_axes=False, reset_y=False):
+        # Ensure parameters are boolean to prevent issues from Qt signals passing integers
+        if not isinstance(reset_axes, bool):
+            reset_axes = False
+        if not isinstance(reset_y, bool):
+            reset_y = False
+
         xlim = self.ax.get_xlim() if not reset_axes else None
-        ylim = self.ax.get_ylim() if not reset_axes else None
+        ylim = self.ax.get_ylim() if (not reset_axes and not reset_y) else None
 
         self.ax.clear()
         self.ax.grid(True, color='#e0e0e0', linestyle='--')
@@ -542,8 +548,12 @@ class NormalizedOverlapCanvas(FigureCanvas):
             if draw_adjacent and active_idx < len(orders) - 1:
                 w_max = max(w_max, orders[active_idx + 1].wavelength[-1])
                 
-            self.ax.set_xlim(w_min, w_max)
-            self.ax.set_ylim(from_y, 1.15)
+            if xlim is not None and not reset_axes:
+                self.ax.set_xlim(xlim)
+            else:
+                self.ax.set_xlim(w_min, w_max)
+                
+            self.ax.set_ylim(from_y, 1.2)
             
         # Limit control
         self.ax.legend(facecolor='#ffffff', edgecolor='#cccccc', labelcolor='#000000', loc='lower left')
@@ -702,14 +712,14 @@ class PegasusWindow(QMainWindow):
         
         self.chk_draw_adjacent = QCheckBox("Draw Adjacent Orders")
         self.chk_draw_adjacent.setChecked(True)
-        self.chk_draw_adjacent.stateChanged.connect(self.update_overlap_plot)
+        self.chk_draw_adjacent.stateChanged.connect(lambda: self.update_overlap_plot())
         vis_layout.addWidget(self.chk_draw_adjacent, 0, 0, 1, 2)
         
         vis_layout.addWidget(QLabel("Y-Limit (Norm Plot):"), 1, 0)
         self.from_selector = QComboBox()
         self.from_selector.addItems([f"{i/10:.1f}" for i in range(10)]) # 0.0 to 0.9
         self.from_selector.setCurrentIndex(0)
-        self.from_selector.currentIndexChanged.connect(self.update_overlap_plot)
+        self.from_selector.currentIndexChanged.connect(lambda: self.update_overlap_plot(reset_y=True))
         vis_layout.addWidget(self.from_selector, 1, 1)
         
         vis_layout.addWidget(QLabel("Doppler Shift (Å):"), 2, 0)
@@ -1385,7 +1395,13 @@ class PegasusWindow(QMainWindow):
         self.update_overlap_plot()
         self.statusBar.showMessage(f"Shifted reference spectrum by {shift:.2f} Å.")
 
-    def update_overlap_plot(self, reset_axes=False):
+    def update_overlap_plot(self, reset_axes=False, reset_y=False):
+        # Ensure parameters are boolean to prevent issues from Qt signals passing integers
+        if not isinstance(reset_axes, bool):
+            reset_axes = False
+        if not isinstance(reset_y, bool):
+            reset_y = False
+
         draw_adjacent = self.chk_draw_adjacent.isChecked()
         from_y = float(self.from_selector.currentText())
         
@@ -1395,7 +1411,8 @@ class PegasusWindow(QMainWindow):
             ref_wavelength=self.ref_wavelength,
             ref_intensity=self.ref_intensity,
             from_y=from_y,
-            reset_axes=reset_axes
+            reset_axes=reset_axes,
+            reset_y=reset_y
         )
         
         # Realize sliders limits based on current view bounds
@@ -1744,7 +1761,7 @@ class SpectraMergerWindow(QDialog):
             # Re-center viewport tightly on the active order
             dx = (active_order.wavelength[-1] - active_order.wavelength[0]) * 0.05
             self.ax.set_xlim(active_order.wavelength[0] - dx, active_order.wavelength[-1] + dx)
-            self.ax.set_ylim(0.0, 1.25)
+            self.ax.set_ylim(0.0, 1.2)
             
         self.canvas.draw()
 
