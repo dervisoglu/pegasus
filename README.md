@@ -5,11 +5,22 @@ Inspired by the spectral reduction methodologies detailed in *"Spectroscopically
 
 ---
 
+## Screenshots
+
+### Main Interface (Continuum Fitting & Overlap View)
+![PEGASUS Main Interface](screenshot/pegasus1.png)
+
+### Spectra Merger & Interactive Visual Trimmer
+![PEGASUS Spectra Merger](screenshot/Pegasus2.png)
+
+---
+
 ## Table of Contents
-1. [Acronym Expansion](#acronym-expansion)
-2. [Prerequisites & Installation](#prerequisites--installation)
-3. [Quick Start](#quick-start)
-4. [Extensive Usage Guide](#extensive-usage-guide)
+1. [Screenshots](#screenshots)
+2. [Acronym Expansion](#acronym-expansion)
+3. [Prerequisites & Installation](#prerequisites--installation)
+4. [Quick Start](#quick-start)
+5. [Extensive Usage Guide](#extensive-usage-guide)
    - [File Loading and Sorting](#1-file-loading-and-sorting)
    - [Continuum Anchor Placement and Fitting](#2-continuum-anchor-placement-and-fitting)
    - [Advanced Continuum Manipulation (Mouse Wheel)](#3-advanced-continuum-manipulation-mouse-wheel)
@@ -18,9 +29,9 @@ Inspired by the spectral reduction methodologies detailed in *"Spectroscopically
    - [Reference Spectrum and Doppler Shift Adjustments](#6-reference-spectrum-and-doppler-shift-adjustments)
    - [Saving and Loading Blaze Configurations](#7-saving-and-loading-blaze-configurations)
    - [Visual Trimming and Scientific Merging](#8-visual-trimming-and-scientific-merging)
-5. [Keyboard and Mouse Reference](#keyboard-and-mouse-reference)
-6. [Data Interoperability Details](#data-interoperability-details)
-7. [License & Credits](#license--credits)
+6. [Keyboard and Mouse Reference](#keyboard-and-mouse-reference)
+7. [Data Interoperability Details](#data-interoperability-details)
+8. [License & Credits](#license--credits)
 
 ---
 
