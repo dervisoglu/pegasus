@@ -795,7 +795,8 @@ class PegasusWindow(QMainWindow):
         """
         Parses a PolarBase .s file containing all orders in a single ASCII file.
         Wavelengths are in nm (must be multiplied by 10 for Angstroms).
-        Wavelength jumps back (wavelength[i] < wavelength[i-1]) demarcate order transitions.
+        Wavelength jumps back (wave < prev_wave) or large gaps (wave - prev_wave > 1.0 Å)
+        demarcate order transitions.
         """
         parsed_orders = []
         try:
@@ -819,8 +820,8 @@ class PegasusWindow(QMainWindow):
                             wave = float(parts[0]) * 10.0
                             flux = float(parts[1])
                             
-                            # Check for wavelength jump to split orders
-                            if prev_wave > 0.0 and wave < prev_wave:
+                            # Check for wavelength jump to split orders (overlapping or gapped)
+                            if prev_wave > 0.0 and (wave < prev_wave or (wave - prev_wave) > 1.0):
                                 if len(wavelengths) > 0:
                                     order_filename = f"{basename}_order_{order_idx:03d}.dat"
                                     order = SpectrumOrder(filepath, wavelength=wavelengths, intensity=intensities)
