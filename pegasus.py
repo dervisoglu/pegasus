@@ -791,9 +791,67 @@ class PegasusWindow(QMainWindow):
     # ---------------------------------------------------------
     # Core Controller Logic
     # ---------------------------------------------------------
+    def load_s_file(self, filepath):
+        """
+        Parses a PolarBase .s file containing all orders in a single ASCII file.
+        Wavelengths are in nm (must be multiplied by 10 for Angstroms).
+        Wavelength jumps back (wavelength[i] < wavelength[i-1]) demarcate order transitions.
+        """
+        parsed_orders = []
+        try:
+            wavelengths = []
+            intensities = []
+            
+            with open(filepath, 'r') as f:
+                # Skip first 2 lines
+                f.readline()
+                f.readline()
+                
+                prev_wave = -1.0
+                order_idx = 1
+                basename = os.path.basename(filepath)
+                
+                for line in f:
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        try:
+                            # Convert nm to Angstroms (multiply by 10)
+                            wave = float(parts[0]) * 10.0
+                            flux = float(parts[1])
+                            
+                            # Check for wavelength jump to split orders
+                            if prev_wave > 0.0 and wave < prev_wave:
+                                if len(wavelengths) > 0:
+                                    order_filename = f"{basename}_order_{order_idx:03d}.dat"
+                                    order = SpectrumOrder(filepath, wavelength=wavelengths, intensity=intensities)
+                                    order.filename = order_filename
+                                    parsed_orders.append(order)
+                                    wavelengths = []
+                                    intensities = []
+                                    order_idx += 1
+                                    
+                            wavelengths.append(wave)
+                            intensities.append(flux)
+                            prev_wave = wave
+                        except ValueError:
+                            continue
+                            
+                # Finalize the last order
+                if len(wavelengths) > 0:
+                    order_filename = f"{basename}_order_{order_idx:03d}.dat"
+                    order = SpectrumOrder(filepath, wavelength=wavelengths, intensity=intensities)
+                    order.filename = order_filename
+                    parsed_orders.append(order)
+                    
+        except Exception as e:
+            QMessageBox.warning(self, "Load Error", f"Failed to parse .s file {filepath}: {str(e)}")
+            return []
+            
+        return parsed_orders
+
     def load_spectra(self):
         files, _ = QFileDialog.getOpenFileNames(
-            self, "Select Echelle Spectra Orders", "", "Spectra Files (*.dat *.order* *.*)"
+            self, "Select Echelle Spectra Orders", "", "Spectra Files (*.dat *.order* *.s *.*)"
         )
         if not files:
             return
@@ -815,6 +873,12 @@ class PegasusWindow(QMainWindow):
                     f"FITS files ({os.path.basename(filepath)}) cannot be loaded as ASCII text. Please use 'Load IRAF FITS' instead."
                 )
                 continue
+                
+            if filepath.lower().endswith('.s'):
+                orders_from_file = self.load_s_file(filepath)
+                self.orders.extend(orders_from_file)
+                continue
+                
             try:
                 order = SpectrumOrder(filepath)
                 if len(order.wavelength) > 0:
