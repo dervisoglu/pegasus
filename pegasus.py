@@ -481,15 +481,13 @@ class NormalizedOverlapCanvas(FigureCanvas):
         for spine in self.ax.spines.values():
             spine.set_color('#cccccc')
 
-    def draw_overlap(self, orders, active_idx, draw_adjacent=True, ref_wavelength=None, ref_intensity=None, from_y=0.0, reset_axes=False, reset_y=False):
+    def draw_overlap(self, orders, active_idx, draw_adjacent=True, ref_wavelength=None, ref_intensity=None, reset_axes=False):
         # Ensure parameters are boolean to prevent issues from Qt signals passing integers
         if not isinstance(reset_axes, bool):
             reset_axes = False
-        if not isinstance(reset_y, bool):
-            reset_y = False
 
         xlim = self.ax.get_xlim() if not reset_axes else None
-        ylim = self.ax.get_ylim() if (not reset_axes and not reset_y) else None
+        ylim = self.ax.get_ylim() if not reset_axes else None
 
         self.ax.clear()
         self.ax.grid(True, color='#e0e0e0', linestyle='--')
@@ -553,7 +551,37 @@ class NormalizedOverlapCanvas(FigureCanvas):
             else:
                 self.ax.set_xlim(w_min, w_max)
                 
-            self.ax.set_ylim(from_y, 1.2)
+            # Automatically scale y-axis based on plotted data, but always at least [0.0, 1.2]
+            all_y = []
+            if active_order.is_fitted and active_order.norm_y is not None:
+                all_y.append(active_order.norm_y)
+            if ref_wavelength is not None and ref_intensity is not None:
+                all_y.append(ref_intensity)
+            if draw_adjacent and active_idx > 0:
+                prev_order = orders[active_idx - 1]
+                if prev_order.is_fitted and prev_order.norm_y is not None:
+                    all_y.append(prev_order.norm_y)
+            if draw_adjacent and active_idx < len(orders) - 1:
+                next_order = orders[active_idx + 1]
+                if next_order.is_fitted and next_order.norm_y is not None:
+                    all_y.append(next_order.norm_y)
+
+            if all_y:
+                flat_y = np.concatenate([y for y in all_y if len(y) > 0])
+                valid_y = flat_y[np.isfinite(flat_y)]
+                if len(valid_y) > 0:
+                    data_ymin = np.nanmin(valid_y)
+                    data_ymax = np.nanmax(valid_y)
+                    ymin = min(0.0, float(data_ymin))
+                    ymax = max(1.2, float(data_ymax))
+                else:
+                    ymin = 0.0
+                    ymax = 1.2
+            else:
+                ymin = 0.0
+                ymax = 1.2
+                
+            self.ax.set_ylim(ymin, ymax)
             
         # Limit control
         self.ax.legend(facecolor='#ffffff', edgecolor='#cccccc', labelcolor='#000000', loc='lower left')
@@ -715,20 +743,13 @@ class PegasusWindow(QMainWindow):
         self.chk_draw_adjacent.stateChanged.connect(lambda: self.update_overlap_plot())
         vis_layout.addWidget(self.chk_draw_adjacent, 0, 0, 1, 2)
         
-        vis_layout.addWidget(QLabel("Y-Limit (Norm Plot):"), 1, 0)
-        self.from_selector = QComboBox()
-        self.from_selector.addItems([f"{i/10:.1f}" for i in range(10)]) # 0.0 to 0.9
-        self.from_selector.setCurrentIndex(0)
-        self.from_selector.currentIndexChanged.connect(lambda: self.update_overlap_plot(reset_y=True))
-        vis_layout.addWidget(self.from_selector, 1, 1)
-        
-        vis_layout.addWidget(QLabel("Doppler Shift (Å):"), 2, 0)
+        vis_layout.addWidget(QLabel("Doppler Shift (Å):"), 1, 0)
         self.doppler_field = QLineEdit("0.0")
         self.btn_doppler_move = QPushButton("Shift")
         self.btn_doppler_move.clicked.connect(self.doppler_shift)
         
-        vis_layout.addWidget(self.doppler_field, 2, 1)
-        vis_layout.addWidget(self.btn_doppler_move, 3, 0, 1, 2)
+        vis_layout.addWidget(self.doppler_field, 1, 1)
+        vis_layout.addWidget(self.btn_doppler_move, 2, 0, 1, 2)
         sidebar_layout.addWidget(vis_group)
         
         sidebar_layout.addStretch()
@@ -1395,24 +1416,19 @@ class PegasusWindow(QMainWindow):
         self.update_overlap_plot()
         self.statusBar.showMessage(f"Shifted reference spectrum by {shift:.2f} Å.")
 
-    def update_overlap_plot(self, reset_axes=False, reset_y=False):
+    def update_overlap_plot(self, reset_axes=False):
         # Ensure parameters are boolean to prevent issues from Qt signals passing integers
         if not isinstance(reset_axes, bool):
             reset_axes = False
-        if not isinstance(reset_y, bool):
-            reset_y = False
 
         draw_adjacent = self.chk_draw_adjacent.isChecked()
-        from_y = float(self.from_selector.currentText())
         
         self.canvas_overlap.draw_overlap(
             self.orders, self.active_idx,
             draw_adjacent=draw_adjacent,
             ref_wavelength=self.ref_wavelength,
             ref_intensity=self.ref_intensity,
-            from_y=from_y,
-            reset_axes=reset_axes,
-            reset_y=reset_y
+            reset_axes=reset_axes
         )
         
         # Realize sliders limits based on current view bounds
