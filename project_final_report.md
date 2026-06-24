@@ -97,6 +97,11 @@ Yazılım, kullanıcıya sürekli ortamı belirlemek üzere iki ana matematiksel
 - **Cubic Spline (Doğal Kübik Spline Enterpolasyonu):** SciPy kütüphanesinin `CubicSpline` modülü kullanılarak oluşturulur. Uç noktalarda ikinci türevin sıfır olduğu (*natural boundary conditions*) sınır koşullarını temel alır. Kompleks aletsel blaze profillerinde en iyi sonucu verir.
 - **Polinom (Polynomial Fit):** $N$. dereceden polinom uydurmayı içerir.
 
+Aşağıdaki Şekil 1'de, echelle spektrumunun bir düzeni üzerinde (soğurma çizgileri barındıran örnek bir modelde) Cubic Spline ve yüksek dereceli Polinom uydurma modellerinin karşılaştırması görselleştirilmiştir.
+
+![Cubic Spline ve Polinom Karşılaştırması](screenshot/fit_comparison.png)
+*Şekil 1: Üst panelde raw spektrum (gri), gerçek sürekli ortam (noktalı mavi), uydurulan Cubic Spline eğrisi (yeşil) ve 4. derece Polinom eğrisi (kesikli kırmızı) ile kullanıcı tarafından yerleştirilen referans noktaları (mavi daireler) gösterilmiştir. Alt panelde ise spline (yeşil) ve polinom (kesikli kırmızı) ile normalize edilmiş spektrumlar karşılaştırılmıştır. Polinom fitinin sürekli ortamın kavisli yapısını takip etmekte yetersiz kaldığı ve uç bölgelerde dalgalandığı açıkça görülmektedir.*
+
 ### Sayısal Taşmanın Önlenmesi (Centering Model)
 Yüksek çözünürlüklü tayflarda dalgaboyu değerleri (örneğin $6500\text{ Å}$) çok büyük sayılardır. Polinom uydurma işleminde dalgaboyunun yüksek dereceli kuvvetlerinin alınması ($x^9$ vb.), bilgisayar belleğinde sayısal taşma (*floating-point overflow*) ve matris tekilliği hatalarına yol açar. PEGASUS bu problemi ortadan kaldırmak için dalgaboylarını kendi medyan dalgaboyuna göre merkezler:
 
@@ -110,6 +115,11 @@ Manuel nokta yerleştirme sürecini hızlandırmak için geliştirilen "Auto-Fin
 2. Spektrum dalgaboyu ekseninde 15 eşit bölgeye ayrılır.
 3. Her bir bölgedeki filtrelenmiş verinin maksimum tepe noktası tespit edilerek continuum noktası olarak atanır.
 4. **Sınır Sabitleme Kuralları (Boundary Anchors):** Kübik spline fonksiyonlarının veri kümesinin sınırlarında dışa doğru aşırı salınım yapmasını (*runaway spline swing / overshoot*) önlemek amacıyla, ilk nokta kesinlikle tayfın ilk 10 pikseli ($0 \le \text{index} < 10$) içerisine, son nokta ise son 10 pikseli ($N-10 \le \text{index} < N$) içerisine zorunlu olarak yerleştirilir.
+
+Aşağıdaki Şekil 2'de, echelle order sınırlarında stabilizasyon noktalarının (Boundary Anchors) bulunmasının spline eğrisinin davranışı üzerindeki kritik etkisi gösterilmiştir.
+
+![Spline Sınır Koşulları Etkisi](screenshot/spline_anchors.png)
+*Şekil 2: Echelle düzeninin uç bölgelerinde sınır sabitleme noktaları (yeşil baklava simgeleri) kullanılmadığında, spline fitinin uçlarda nasıl kontrolsüzce saptığı (kesikli kırmızı çizgi - overshoot) ve sınır sabitleme noktaları aktif edildiğinde (yeşil düz çizgi) spline eğrisinin nasıl mükemmel şekilde kararlı kaldığı gösterilmiştir.*
 
 ### 4.3. Snap-to-Median (Lokal Medyana Yapışma) Algoritması
 Kullanıcı manuel olarak bir continuum noktası eklediğinde veya taşıdığında, fare imlecinin soğurma çizgisinin tam ortasına denk gelmesini önlemek için bir çekim alanı algoritması geliştirilmiştir. "Snap to 1Å Local Median" seçeneği aktif olduğunda, fare imlecinin yerleştirildiği $\lambda_0$ konumunda $\pm 0.5\text{ Å}$ aralığındaki tüm pikseller toplanır ve bu piksellerin medyan akı değeri nokta koordinatı olarak güncellenir:
@@ -162,6 +172,11 @@ Kırpma işlemi tamamlandıktan sonra, "Merge & Save 1D Spectrum" adımıyla bil
    $$I_{\text{merged}}(\lambda_j) = \text{Median}\Big( I'_1(\lambda_j), I'_2(\lambda_j), \dots, I'_K(\lambda_j) \Big)$$
    Burada $I'_k$ ortak ızgaraya enterpole edilmiş $k$. düzenin akısıdır. Medyan filtresinin kullanılması, echelle kenarındaki saçılma ışıklarının, kozmik ışın izlerinin ve dedektör üzerindeki lokal piksel hatalarının birleştirilmiş tayfa sızmasını matematiksel olarak engeller.
 4. **Boşluk Doldurma:** Fiziksel olarak düzenler arasında boşluk kalmışsa (gap), bu bölgeler doğrusal interpolasyon ile kesintisiz birleştirilir.
+
+Aşağıdaki Şekil 3'te, PEGASUS'un çakışan echelle düzenleri için sunduğu kırpma sınırı yönetimi ve median-combine birleştirme adımları adım adım simüle edilmiştir.
+
+![Spectra Merger ve Median Combine](screenshot/merger_demo.png)
+*Şekil 3: (Üst panel) İki komşu düzenin (Order N ve Order N+1) çakışan dalgaboyu aralığındaki ham verileri ve kırpma sınırları. Order N'deki tekil kozmik ışın gürültüsüne dikkat ediniz. (Orta panel) Belirlenen sınırlara göre kırpılmış ve pasif kısımları gri ile maskelenmiş düzenler. (Alt panel) Ortak dalgaboyu ızgarasında median-combine edilerek birleştirilmiş nihai spektrum. Medyan birleştirme sayesinde Order N'deki kozmik ışın gürültüsü tamamen elimine edilmiş ve sinyal kalitesi artırılmıştır.*
 
 ---
 
